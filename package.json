@@ -1,0 +1,28 @@
+{
+  "name": "tibu",
+  "version": "0.0.1-alpha1",
+  "description": "tibu is a low fuss high fun PEG parser generator/DSL written in TypeScript",
+  "main": "dist/tibu.js",
+  "types": "dist/tibu.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benbenbenbenbenben/tibu.git"
+  },
+  "keywords": [
+    "peg",
+    "pegs",
+    "parser-generator",
+    "typescript",
+    "jison"
+  ],
+  "author": "Benjamin Babik",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/benbenbenbenbenben/tibu/issues"
+  },
+  "homepage": "https://github.com/benbenbenbenbenben/tibu#readme"
+}
