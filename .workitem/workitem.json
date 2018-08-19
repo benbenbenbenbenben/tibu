@@ -1,0 +1,1 @@
+{"directories":["todo","doing","done"],"incoming":"todo","active":["doing"],"completed":"done","transitions":[["todo","doing"],["doing","done"]],"workbranch":"__workitem__"}
