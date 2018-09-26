@@ -7,8 +7,14 @@ export declare class ResultTokens {
     constructor();
     push(name: string, result: Result): number;
     dropafter(end: number): void;
-    one(name: string): string | any;
-    get(name: string): string | any;
+    one(name: string): {
+        value: string;
+        index: number;
+    } | null;
+    get(name: string): {
+        value: string;
+        index: number;
+    }[] | null;
     raw(name: string): {
         name: string;
         raw: string;

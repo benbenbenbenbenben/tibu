@@ -26,6 +26,7 @@ interface IRuleAction {
     (this: any, result: ResultTokens, yielded: any): any | void;
 }
 interface IToken {
+    __token__: string;
 }
 interface IRule {
     yields(yielder: IRuleAction): IRule;

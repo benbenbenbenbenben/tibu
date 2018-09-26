@@ -24,5 +24,13 @@
   "bugs": {
     "url": "https://github.com/benbenbenbenbenben/tibu/issues"
   },
-  "homepage": "https://github.com/benbenbenbenbenben/tibu#readme"
+  "homepage": "https://github.com/benbenbenbenbenben/tibu#readme",
+  "devDependencies": {
+    "@types/chai": "^4.1.4",
+    "@types/mocha": "^5.2.5",
+    "chai": "^4.1.2",
+    "mocha": "^5.2.0",
+    "ts-mocha": "^2.0.0",
+    "ts-node": "^7.0.1"
+  }
 }

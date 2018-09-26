@@ -100,7 +100,7 @@ class Tibu {
                     };
                 };
                 predicate.toString = () => {
-                    return "string:" + pattern;
+                    return `${pattern}`
                 };
                 return predicate;
                 case "RegExp":
@@ -119,7 +119,7 @@ class Tibu {
                     };
                 };
                 predicate.toString = () => {
-                    return "regex:" + pattern.toString();
+                    return `regex(${pattern.toString()})`
                 };
                 return predicate;
                 case "Function":
@@ -156,7 +156,7 @@ class Tibu {
     }
 
     public static all(...patterns:any[]):(input:Input) => Result {
-        return (input:Input):Result => {
+        const all:any = (input:Input):Result => {
             let location:number = input.location;
             let consumed:Result[] = [];
             let fault:boolean = false;
@@ -177,10 +177,12 @@ class Tibu {
                 return Result.composite(...consumed);
             }
         };
+        all.pattern = patterns
+        return all
     }
 
     public static optional(...patterns:any[]):(input:Input) => Result {
-        return (input:Input):Result => {
+        const optional:any = (input:Input):Result => {
             let outcome:Result = Tibu.all(...patterns)(input);
             if (outcome.success) {
                 return outcome;
@@ -188,10 +190,12 @@ class Tibu {
                 return Result.pass(input);
             }
         };
+        optional.pattern = patterns
+        return optional
     }
 
     public static either(...patterns:any[]):(input:Input) => Result {
-        return (input:Input):Result => {
+        const either:any = (input:Input):Result => {
             let outcome:Result = Result.fault(input);
             for (let pattern of Tibu.ensurePredicates(...patterns)) {
                 let current:Result = input.consume(pattern);
@@ -202,6 +206,11 @@ class Tibu {
             }
             return outcome;
         };
+        either.toString = () => {
+            return "either(" + patterns.map(p => p.toString()).join(",") + ")";
+        }
+        either.pattern = patterns
+        return either
     }
 
     public static many(...patterns:any[]):(input:Input) => Result {
@@ -229,15 +238,16 @@ class Tibu {
             return Result.composite(...consumed);
         };
         many.toString = () => {
-            return "many:" + patterns.map(p => p.toString()).join("/");
+            return "many(" + patterns.map(p => p.toString()).join(",") + ")";
         };
+        many.pattern = patterns
         return many;
     }
 
     public static token(name:string, pattern:RegExp | string):IToken {
         let func:Function[] = Tibu.ensurePredicates(pattern);
         (func[0] as any).__token__ = name;
-        return func[0];
+        return <any>func[0];
     }
 }
 
@@ -245,6 +255,7 @@ interface IRuleAction {
     (this:any, result:ResultTokens, yielded:any):any | void;
 }
 interface IToken {
+    __token__:string;
 }
 interface IRule {
    // (...pattern:Pattern[]): IRule;

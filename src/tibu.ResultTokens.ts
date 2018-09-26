@@ -20,17 +20,22 @@ export class ResultTokens {
             }
         }
     }
-    one(name:string):string | any {
-        const r:any = this.get(name);
+    one(name:string):{ value: string, index:number } | null {
+        const r = this.get(name);
         if (r !== null) {
             return r[0];
         }
         return null;
     }
-    get(name:string):string | any {
+    get(name:string):{ value: string, index:number }[] | null {
         const target:{name:string, result:Result}[] = this.tokens.filter(t => t.name === name);
         if (target.length > 0) {
-            return target.map(r => r.result.value);
+            return target.map(r => { 
+                return {
+                    value: r.result.value,
+                    index: r.result.startloc
+                }
+            });
         } else {
             return null;
         }
