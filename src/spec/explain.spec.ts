@@ -59,7 +59,7 @@ describe("explain", () => {
     it("should yield with late binding rules", () => {
         const rule0 = rule(token("a", "a")).yields(() => {return {result:true}})
 
-        const f = (r:ResultTokens, c:any):any {
+        const f = (r:ResultTokens, c:any):any => {
             r // ?
             c // ?
             return c

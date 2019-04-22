@@ -33,4 +33,4 @@ interface IRule {
     passes(source: string, expect: any): IRule;
 }
 declare type Pattern = string | RegExp | IToken | IRule | ((input: Input) => Result) | (() => IRule);
-export { Tibu, Result, ResultTokens, Input, IToken, IRule, IRuleAction, Pattern };
+export { Tibu, Result, ResultTokens, Input, IToken, IRule, IRuleAction, Pattern, };
