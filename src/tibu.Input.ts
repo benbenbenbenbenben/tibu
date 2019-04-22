@@ -39,7 +39,7 @@ export class Input {
         const startloc:number = this.location;
         const result:Result = predicate(this);
         if ((result as any).__rule__) {
-            return this.consume(Tibu.all(...(result as any)));
+            return this.consume(Tibu.all(result as any));
         }
         let output:Result =  Result.fault(this);
         if (result.success === false) {

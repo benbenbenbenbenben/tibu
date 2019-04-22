@@ -46,7 +46,7 @@ class Tibu {
             input.rewind(ref);
             return false;
         }
-        // console.log(JSON.stringify(matches, null, 2));
+        console.log(JSON.stringify(matches, null, 2));
         input.end();
         if (rule.yielder) {
             return rule.yielder(tokens, matches.map(match => match.yielded));

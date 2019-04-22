@@ -1,7 +1,7 @@
 import { expect } from "chai"
 import "mocha"
 
-import { Tibu, IRule, Input, Result } from "../tibu";
+import { Tibu, IRule, Input, Result, ResultTokens } from "../tibu";
 const { all, either, rule, many, parse, token, optional, /* explain */ } = Tibu
 
 const explain = (thisrule: any):any => {
@@ -55,6 +55,17 @@ describe("explain", () => {
 
         expect(explain(rule(init, optional(ws, auto), optional(ws, git), EOL)))
             .to.eq("init auto? +git?")
+    })
+    it("should yield with late binding rules", () => {
+        const rule0 = rule(token("a", "a")).yields(() => {return {result:true}})
+
+        const f = (r:ResultTokens, c:any):any {
+            r // ?
+            c // ?
+            return c
+        }
+        const g = parse("aa")(rule(() => rule0).yields(f))
+        g // ?
     })
 
 })
