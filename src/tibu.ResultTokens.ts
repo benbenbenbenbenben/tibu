@@ -41,6 +41,6 @@ export class ResultTokens {
         }
     }
     raw(name:string):{name:string, raw:string} {
-        return { name, raw: this.tokens.map(t => t.result.value).join() };
+        return { name, raw: this.tokens.map(t => t.result.value).join("") };
     }
 }
