@@ -46,10 +46,10 @@ class Tibu {
             input.rewind(ref);
             return false;
         }
-        console.log(JSON.stringify(matches, null, 2));
         input.end();
+        const fragment = input.source.slice(ref, input.location);
         if (rule.yielder) {
-            return rule.yielder(tokens, matches.map(match => match.yielded));
+            return rule.yielder(tokens, matches.map(match => match.yielded), fragment);
         }
         return matches;
     }
@@ -132,11 +132,14 @@ class Tibu {
                         debugger;
                     }
                     if (pattern.yielder) {
+                        const start = input.location;
                         const frozentokens:ResultTokens = input.tokens;
                         input.tokens = new ResultTokens();
                         const result:Result = Tibu.all(...pattern)(input);
                         if (result.success) {
-                            let subruleyield:any = pattern.yielder(input.tokens, result.yielded);
+                            const end = input.location;
+                            const fragment = input.source.substring(start, end);
+                            let subruleyield:any = pattern.yielder(input.tokens, result.yielded, fragment);
                             result.yielded = subruleyield;
                         }
                         input.tokens = frozentokens;
@@ -252,7 +255,7 @@ class Tibu {
 }
 
 interface IRuleAction {
-    (this:any, result:ResultTokens, yielded:any):any | void;
+    (this:any, result:ResultTokens, yielded:any, raw:string):any | void;
 }
 interface IToken {
     __token__:string;
