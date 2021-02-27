@@ -1,6 +1,3 @@
-import { expect } from "chai"
-import "mocha"
-
 import { Tibu, IRule, Input, Result, ResultTokens } from "../tibu";
 const { all, either, rule, many, parse, token, optional, /* explain */ } = Tibu
 
@@ -32,15 +29,15 @@ const explain = (thisrule: any):any => {
 describe("explain", () => {
     it("should explain a basic 1 token rule", () => {
         const thisrule = rule(token("basic", "basicpattern"))
-        expect(explain(thisrule)).to.eq("basic:basicpattern")
+        expect(explain(thisrule)).toBe("basic:basicpattern")
     })
     it("should explain a basic 2 token rule", () => {
         const thisrule = rule(token("basic", "basic"), " ", token("basic", "basic"))
-        expect(explain(thisrule)).to.eq("basic basic")
+        expect(explain(thisrule)).toBe("basic basic")
     })    
     it("should explain a many token rule", () => {
         const thisrule = rule(many(token("basic", "basic")))
-        expect(explain(thisrule)).to.eq("basic*")
+        expect(explain(thisrule)).toBe("basic*")
     })
     it("should explain a rule with optionals", () => {        
         const init = token("init", "init")
@@ -54,7 +51,7 @@ describe("explain", () => {
         EOL.toString = () => ""
 
         expect(explain(rule(init, optional(ws, auto), optional(ws, git), EOL)))
-            .to.eq("init auto? +git?")
+            .toBe("init auto? +git?")
     })
     it("should yield with late binding rules", () => {
         const rule0 = rule(token("a", "a")).yields(() => {return {result:true}})
