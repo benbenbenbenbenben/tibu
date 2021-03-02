@@ -23,7 +23,10 @@ declare class Tibu {
     static token(name: string, pattern: RegExp | string): IToken;
 }
 interface IRuleAction {
-    (this: any, result: ResultTokens, yielded: any, raw: string): any | void;
+    (this: any, result: ResultTokens, yielded: any, raw: string, location: {
+        start: number;
+        end: number;
+    }): any | void;
 }
 interface IToken {
     __token__: string;

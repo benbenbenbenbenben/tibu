@@ -1,6 +1,6 @@
 {
   "name": "tibu",
-  "version": "0.0.1-alpha2",
+  "version": "0.0.1-alpha3",
   "description": "tibu is a low fuss high fun PEG parser generator/DSL written in TypeScript",
   "main": "dist/tibu.js",
   "types": "dist/tibu.d.ts",
