@@ -11,6 +11,7 @@
     //"sourceMap": true,                        /* Generates corresponding '.map' file. */
     // "outFile": "./dist/tibu.js",           /* Concatenate and emit output to single file. */
     "outDir": "./dist",                       /* Redirect output structure to the directory. */
+    "lib": ["es2015", "es2020"],
     // "rootDir": "./",                       /* Specify the root directory of input files. Use to control the output directory structure with --outDir. */
     // "removeComments": true,                /* Do not emit comments to output. */
     // "noEmit": true,                        /* Do not emit outputs. */
@@ -21,7 +22,7 @@
     /* Strict Type-Checking Options */
     "strict": true,                           /* Enable all strict type-checking options. */
     // "noImplicitAny": true,                 /* Raise error on expressions and declarations with an implied 'any' type. */
-    // "strictNullChecks": true,              /* Enable strict null checks. */
+    "strictNullChecks": true,              /* Enable strict null checks. */
     // "strictFunctionTypes": true,           /* Enable strict checking of function types. */
     // "strictPropertyInitialization": true,  /* Enable strict checking of property initialization in classes. */
     // "noImplicitThis": true,                /* Raise error on 'this' expressions with an implied 'any' type. */
