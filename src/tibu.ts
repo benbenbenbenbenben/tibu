@@ -70,83 +70,61 @@ class Tibu {
     return matches;
   }
 
-  public static rule(...patterns: Pattern[]): IRule {
-    const predicates = Tibu.precompilePatterns(...patterns);
-    return brand(predicates, {
-      __rule__: true,
-      yields: (handler: IRuleAction): any => {
-        brand(predicates, {
-          yielder: handler,
-        });
-        return predicates;
-      },
-      passes: (source: string, expected: any): IRule => {
-        Tibu.tests.push(() => {
-          let result: any = null;
-          Tibu.parse(source)(
-            Tibu.rule(predicates).yields((r, c) => {
-              result = c[0];
-              return null;
-            })
-          );
-          return {
-            expected: expected,
-            actual: result,
-            source: predicates.toString(),
-          };
-        });
-        return predicates;
-      },
+  private static stringRule(pattern: string): IRule[0] {
+    const predicate = (input: Input): Result => {
+      const ix = input.indexOfString(pattern);
+      const success: boolean = ix === 0;
+      const start: number = input.location;
+      const end: number = input.location + pattern.length;
+      return {
+        success,
+        start,
+        end,
+        value: pattern,
+        children: [],
+        yielded: undefined, // pattern
+      };
+    };
+    return brand(predicate, {
+      toString: () => pattern,
     });
   }
 
-  public static precompilePatterns(...patterns: Pattern[]): IRule {
+  private static regexRule(pattern: RegExp): IRule[0] {
+    const predicate = (input: Input): Result => {
+      const ix = input.indexOfRegExp(pattern);
+      const success: boolean = ix !== undefined && ix.index === 0;
+      const start: number = input.location;
+      const end: number = input.location + (ix ? ix.length : 0);
+      return {
+        success,
+        start,
+        end,
+        value: ix ? ix.value : "",
+        children: [],
+        yielded: undefined, // rxix.value
+      };
+    };
+    predicate.toString = () => {
+      return `regex(${pattern.toString()})`;
+    };
+    return predicate;
+  }
+
+  public static rule(...patterns: Pattern[]): IRule {
     const step1 = patterns.map((pattern) => {
       if (isString(pattern)) {
-        const predicate = (input: Input): Result => {
-          const ix = input.indexOfString(pattern);
-          const success: boolean = ix === 0;
-          const start: number = input.location;
-          const end: number = input.location + pattern.length;
-          return {
-            success,
-            start,
-            end,
-            value: pattern,
-            children: [],
-            yielded: undefined, // pattern
-          };
-        };
-        predicate.toString = () => {
-          return `${pattern}`;
-        };
-        return predicate;
+        return Tibu.stringRule(pattern);
       }
       if (isRegExp(pattern)) {
-        const predicate = (input: Input): Result => {
-          const ix = input.indexOfRegExp(pattern);
-          const success: boolean = ix !== undefined && ix.index === 0;
-          const start: number = input.location;
-          const end: number = input.location + (ix ? ix.length : 0);
-          return {
-            success,
-            start,
-            end,
-            value: ix ? ix.value : "",
-            children: [],
-            yielded: undefined, // rxix.value
-          };
-        };
-        predicate.toString = () => {
-          return `regex(${pattern.toString()})`;
-        };
-        return predicate;
+        return Tibu.regexRule(pattern);
       }
       if (isFunction(pattern)) {
         return pattern;
         // subrule case, trampoline time!
       }
       if (isArray(pattern)) {
+        // pattern is an IRule or an inline array...
         const predicate = (input: Input): Result => {
           if (pattern.yielder) {
             const start = input.location;
@@ -156,7 +134,7 @@ class Tibu {
             if (result.success) {
               const end = input.location;
               const fragment = input.source.substring(start, end);
-              let subruleyield: any = pattern.yielder(
+              let subruleyield = pattern.yielder(
                 input.tokens,
                 result.yielded,
                 fragment,
@@ -167,6 +145,7 @@ class Tibu {
             input.tokens = frozentokens;
             return result;
           } else {
+            // ...all-ify this array
             return Tibu.all(...pattern)(input);
           }
         };
@@ -178,27 +157,11 @@ class Tibu {
       throw new Error("oops");
     });
     return brand(step1, {
+      $type: "rule" as const,
       __rule__: true,
       yields: (handler: IRuleAction): any => {
         brand(step1, {
           yielder: handler,
-        });
-        return step1;
-      },
-      passes: (source: string, expected: any): IRule => {
-        Tibu.tests.push(() => {
-          let result: any = null;
-          Tibu.parse(source)(
-            Tibu.rule(step1).yields((r, c) => {
-              result = c[0];
-              return null;
-            })
-          );
-          return {
-            expected: expected,
-            actual: result,
-            source: step1.toString(),
-          };
         });
         return step1;
       },
@@ -210,7 +173,7 @@ class Tibu {
       let location: number = input.location;
       let consumed: Result[] = [];
       let fault: boolean = false;
-      for (let precompiledRule of Tibu.precompilePatterns(...patterns)) {
+      for (let precompiledRule of Tibu.rule(...patterns)) {
         const nxt: Result = input.consume(precompiledRule);
         if (nxt.success) {
           consumed.push(nxt);
@@ -247,7 +210,7 @@ class Tibu {
   public static either(...patterns: Pattern[]): PatternFunction {
     const either = (input: Input): Result => {
       let outcome = Result.fault(input);
-      for (let pattern of Tibu.precompilePatterns(...patterns)) {
+      for (let pattern of Tibu.rule(...patterns)) {
         let current = input.consume(pattern);
         if (current.success) {
           outcome = current;
@@ -268,17 +231,17 @@ class Tibu {
       let location: number;
       let consumed: Result[] = [];
       let current: Result;
-      let nothingleft: boolean = false;
+      let exhausted: boolean = false;
       while (true) {
         location = input.location;
         current = Tibu.all(...patterns)(input);
         if (current.success) {
           consumed.push(current);
         } else {
-          nothingleft = true;
+          exhausted = true;
         }
         // stalled
-        if (input.location === location || nothingleft) {
+        if (input.location === location || exhausted) {
           break;
         }
       }
@@ -294,10 +257,15 @@ class Tibu {
     return many;
   }
 
-  public static token(name: string, pattern: RegExp | string): IToken {
-    let func = Tibu.precompilePatterns(pattern);
-    func[0].__token__ = name;
-    return func[0];
+  public static token<N extends string>(
+    name: N,
+    pattern: RegExp | string
+  ): IToken<N> {
+    let func = Tibu.rule(pattern);
+    return brand(func[0] as (input: Input) => Result, {
+      $type: "token" as const,
+      data: name,
+    });
   }
 }
 
@@ -310,21 +278,27 @@ interface IRuleAction {
     location: { start: number; end: number }
   ): any | void;
 }
-interface IToken {
+interface IToken<N> {
+  $type: "token";
+  data: N;
   (input: Input): Result;
-  __token__: string;
 }
-interface IRule {
+interface IRule extends Array<((input: Input) => Result) | (() => IRule)> {
   // (...pattern:Pattern[]): IRule;
-  [index: number]: Function;
+  $type: "rule";
   yields(yielder: IRuleAction): IRule;
-  passes(source: string, expect: any): IRule;
+  yielder?: (
+    tokens: ResultTokens,
+    yielded: any,
+    fragment: string,
+    location: { start: number; end: number }
+  ) => any;
 }
 
 type Pattern =
   | string
   | RegExp
-  | IToken
+  | IToken<any>
   | IRule
   | ((input: Input) => Result)
   | (() => IRule);
@@ -335,7 +309,7 @@ const isString = (pattern: any): pattern is string => {
 const isRegExp = (pattern: any): pattern is RegExp => {
   return pattern instanceof RegExp;
 };
-const isIToken = (pattern: any): pattern is IToken => {
+const isIToken = (pattern: any): pattern is IToken<any> => {
   return !isString(pattern) && "__token__" in pattern;
 };
 const isIRule = (pattern: any): pattern is IRule => {
