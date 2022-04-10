@@ -2,11 +2,19 @@
   "name": "tibu",
   "version": "1.0.0",
   "description": "tibu is a low fuss high fun PEG parser generator/DSL written in TypeScript",
-  "main": "dist/tibu.js",
-  "types": "dist/tibu.d.ts",
+  "type": "module",
+  "source": "src/tibu.ts",
+  "exports": {
+    "require": "./dist/tibu.cjs",
+    "default": "./dist/tibu.modern.js"
+  },
+  "main": "./dist/tibu.cjs",
+  "module": "./dist/tibu.module.js",
+  "unpkg": "./dist/tibu.umd.js",
   "scripts": {
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "microbundle",
+    "dev": "microbundle watch",
+    "test": "vitest --global"
   },
   "repository": {
     "type": "git",
@@ -26,9 +34,10 @@
   },
   "homepage": "https://github.com/benbenbenbenbenben/tibu#readme",
   "devDependencies": {
-    "jest": "^26.6.3",
-    "ts-jest": "^26.5.2",
-    "ts-node": "^9.1.1",
-    "typescript": "^4.2.2"
+    "@tsconfig/node16": "^1.0.2",
+    "@vitest/ui": "^0.9.2",
+    "microbundle": "^0.14.2",
+    "typescript": "^4.6.3",
+    "vitest": "^0.9.2"
   }
 }

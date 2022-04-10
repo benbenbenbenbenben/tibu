@@ -1,5 +1,7 @@
 {
     "cSpell.words": [
         "precompile", "precompiled"
-    ]
+    ],
+    "vitest.commandLine": "pnpx vitest",
+    "vitest.enable": true
 }

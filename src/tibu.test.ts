@@ -1,0 +1,35 @@
+import { describe, it, expect } from "vitest";
+import { Tibu, IToken, TokenResult } from "./tibu";
+
+const { parse, either, all, rule, token } = Tibu;
+
+describe("Tibu", () => {
+  it("dd", () => {
+    expect(1).toBe(1);
+
+    const title = either("Mr", "Mrs", "Miss", "Dr");
+    const whitespace = token("whitespace", /\s*/);
+    const name = token("name", /.+/);
+
+    const titledPerson = rule(title, whitespace, name);
+
+    const mrSmith = parse("Mr Smith")(titledPerson);
+
+    expect<
+      [
+        (
+          | TokenResult<"Mr">
+          | TokenResult<"Mrs">
+          | TokenResult<"Miss">
+          | TokenResult<"Dr">
+        ),
+        TokenResult<"whitespace">,
+        TokenResult<"name">
+      ]
+    >(mrSmith).toStrictEqual([
+      { $type: "token", $ok: true, $label: "Mr", value: "Mr", index: 0 },
+      { $type: "token", $ok: true, $label: "whitespace", value: " ", index: 2 },
+      { $type: "token", $ok: true, $label: "name", value: "Smith", index: 3 },
+    ]);
+  });
+});

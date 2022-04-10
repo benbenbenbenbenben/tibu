@@ -8,10 +8,41 @@ const brand = <T, B>(t: T, b: B): Branded<T, B> => {
   return Object.assign(t, b);
 };
 
+export type TokenResult<N extends string> = {
+  $type: "token";
+  $ok: true;
+  $label: N;
+  value: string;
+  index: number;
+};
+
 type PatternFunction = {
   (input: Input): Result;
   pattern: Pattern[];
 };
+
+type StringRule<pattern> = {
+  (input:Input): Result;
+  $type: "rule";
+  $subtype: "string"
+  $pattern: pattern
+  toString: () => string;
+}
+
+const stringRule = <pattern extends string>(pattern:pattern): StringRule<pattern> => { 
+  const rule = (input: Input): Result => {
+    return {} as any as Result
+  }
+  return brand(rule, {
+    $type: "rule" as const,
+    $subtype: "string" as const,
+    $pattern: pattern,
+    toString: () => pattern,
+  })
+}
+
+const 
+
 class Tibu {
   public static tests: (() => {
     actual: any;
@@ -27,10 +58,10 @@ class Tibu {
       []
     );
   }
-  public static parse(source: string): (...rules: IRule[]) => any {
+  public static parse(source: string): <R extends [Rule]>(...rules: R) => Result[][] {
     const input = new Input(source);
-    return (...rules: IRule[]): any => {
-      const results: any[] = [];
+    return (...rules: Rule[]): any => {
+      const results:Result[][] = [];
       for (let rule of rules) {
         const result = Tibu.next(input, rule);
         if (result.length === 0) {
@@ -70,27 +101,7 @@ class Tibu {
     return matches;
   }
 
-  private static stringRule(pattern: string): IRule[0] {
-    const predicate = (input: Input): Result => {
-      const ix = input.indexOfString(pattern);
-      const success: boolean = ix === 0;
-      const start: number = input.location;
-      const end: number = input.location + pattern.length;
-      return {
-        success,
-        start,
-        end,
-        value: pattern,
-        children: [],
-        yielded: undefined, // pattern
-      };
-    };
-    return brand(predicate, {
-      toString: () => pattern,
-    });
-  }
-
-  private static regexRule(pattern: RegExp): IRule[0] {
+  private static regexRule(pattern: RegExp): Rule<[RegExp]> {
     const predicate = (input: Input): Result => {
       const ix = input.indexOfRegExp(pattern);
       const success: boolean = ix !== undefined && ix.index === 0;
@@ -111,10 +122,10 @@ class Tibu {
     return predicate;
   }
 
-  public static rule(...patterns: Pattern[]): IRule {
+  public static rule<P extends [...P]>(...patterns: P): Rule<P> {
     const step1 = patterns.map((pattern) => {
       if (isString(pattern)) {
-        return Tibu.stringRule(pattern);
+        return stringRule(pattern);
       }
       if (isRegExp(pattern)) {
         return Tibu.regexRule(pattern);
@@ -264,7 +275,7 @@ class Tibu {
     let func = Tibu.rule(pattern);
     return brand(func[0] as (input: Input) => Result, {
       $type: "token" as const,
-      data: name,
+      $label : name,
     });
   }
 }
@@ -280,28 +291,28 @@ interface IRuleAction {
 }
 interface IToken<N> {
   $type: "token";
-  data: N;
+  $label: N;
   (input: Input): Result;
 }
-interface IRule extends Array<((input: Input) => Result) | (() => IRule)> {
-  // (...pattern:Pattern[]): IRule;
+
+type Rule<P extends [...P]> = {
   $type: "rule";
-  yields(yielder: IRuleAction): IRule;
+  yields(yielder: IRuleAction): Rule<P>;
   yielder?: (
     tokens: ResultTokens,
     yielded: any,
     fragment: string,
     location: { start: number; end: number }
   ) => any;
-}
+} & P
 
 type Pattern =
   | string
   | RegExp
   | IToken<any>
-  | IRule
+  | Rule
   | ((input: Input) => Result)
-  | (() => IRule);
+  | (() => Rule);
 
 const isString = (pattern: any): pattern is string => {
   return typeof pattern === "string";
@@ -312,7 +323,7 @@ const isRegExp = (pattern: any): pattern is RegExp => {
 const isIToken = (pattern: any): pattern is IToken<any> => {
   return !isString(pattern) && "__token__" in pattern;
 };
-const isIRule = (pattern: any): pattern is IRule => {
+const isIRule = (pattern: any): pattern is Rule => {
   return !isString(pattern) && "yields" in pattern;
 };
 const isFunction = (pattern: any): pattern is Function => {
@@ -328,7 +339,7 @@ export {
   ResultTokens,
   Input,
   IToken,
-  IRule,
+  Rule as IRule,
   IRuleAction,
   Pattern,
 };
