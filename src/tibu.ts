@@ -21,27 +21,95 @@ type PatternFunction = {
   pattern: Pattern[];
 };
 
-type StringRule<pattern> = {
-  (input:Input): Result;
+type Token<Label extends string> = {
+  (input: Input): Result;
   $type: "rule";
-  $subtype: "string"
-  $pattern: pattern
+  $label: Label;
   toString: () => string;
-}
+} & (
+  | {
+      $subtype: "string";
+      $pattern: string;
+    }
+  | {
+      $subtype: "regex";
+      $pattern: RegExp;
+    }
+);
 
-const stringRule = <pattern extends string>(pattern:pattern): StringRule<pattern> => { 
-  const rule = (input: Input): Result => {
-    return {} as any as Result
+type EitherRule<H, T extends any[]> = [H, ...T];
+
+export const either = <A extends string, T extends Readonly<[...A[]]>>(
+  ...patterns: T
+): Readonly<T> => {
+  const either = (input: Input): Result => {
+    let outcome = Result.fault(input);
+    for (let pattern of Tibu.rule(...patterns)) {
+      let current = input.consume(pattern);
+      if (current.success) {
+        outcome = current;
+        break;
+      }
+    }
+    return outcome;
+  };
+  either.toString = () => {
+    return "either(" + patterns.map((p) => p.toString()).join(",") + ")";
+  };
+  either.pattern = patterns;
+  return either as EitherRule<P>;
+};
+
+export const token = <Label extends string>(
+  label: Label,
+  pattern: string | RegExp
+): Token<Label> => {
+  if (typeof pattern === "string") {
+    const rule = (input: Input): Result => {
+      const ix = input.indexOfString(pattern);
+      const success: boolean = ix === 0;
+      const start: number = input.location;
+      const end: number = input.location + pattern.length;
+      return {
+        success,
+        start,
+        end,
+        value: pattern,
+        children: [],
+        yielded: undefined, // pattern
+      };
+    };
+    return brand(rule, {
+      $type: "rule" as const,
+      $subtype: "string" as const,
+      $label: label,
+      $pattern: pattern,
+      toString: () => label,
+    });
+  } else {
+    const rule = (input: Input): Result => {
+      const ix = input.indexOfRegExp(pattern);
+      const success: boolean = ix !== undefined && ix.index === 0;
+      const start: number = input.location;
+      const end: number = input.location + (ix ? ix.length : 0);
+      return {
+        success,
+        start,
+        end,
+        value: ix ? ix.value : "",
+        children: [],
+        yielded: undefined, // rxix.value
+      };
+    };
+    return brand(rule, {
+      $type: "rule" as const,
+      $subtype: "regex" as const,
+      $label: label,
+      $pattern: pattern,
+      toString: () => label,
+    });
   }
-  return brand(rule, {
-    $type: "rule" as const,
-    $subtype: "string" as const,
-    $pattern: pattern,
-    toString: () => pattern,
-  })
-}
-
-const 
+};
 
 class Tibu {
   public static tests: (() => {
@@ -58,10 +126,12 @@ class Tibu {
       []
     );
   }
-  public static parse(source: string): <R extends [Rule]>(...rules: R) => Result[][] {
+  public static parse(
+    source: string
+  ): <R extends [Rule]>(...rules: R) => Result[][] {
     const input = new Input(source);
     return (...rules: Rule[]): any => {
-      const results:Result[][] = [];
+      const results: Result[][] = [];
       for (let rule of rules) {
         const result = Tibu.next(input, rule);
         if (result.length === 0) {
@@ -101,34 +171,13 @@ class Tibu {
     return matches;
   }
 
-  private static regexRule(pattern: RegExp): Rule<[RegExp]> {
-    const predicate = (input: Input): Result => {
-      const ix = input.indexOfRegExp(pattern);
-      const success: boolean = ix !== undefined && ix.index === 0;
-      const start: number = input.location;
-      const end: number = input.location + (ix ? ix.length : 0);
-      return {
-        success,
-        start,
-        end,
-        value: ix ? ix.value : "",
-        children: [],
-        yielded: undefined, // rxix.value
-      };
-    };
-    predicate.toString = () => {
-      return `regex(${pattern.toString()})`;
-    };
-    return predicate;
-  }
-
   public static rule<P extends [...P]>(...patterns: P): Rule<P> {
     const step1 = patterns.map((pattern) => {
       if (isString(pattern)) {
-        return stringRule(pattern);
+        return token(pattern, pattern);
       }
       if (isRegExp(pattern)) {
-        return Tibu.regexRule(pattern);
+        return token(pattern.toString(), pattern);
       }
       if (isFunction(pattern)) {
         return pattern;
@@ -218,25 +267,6 @@ class Tibu {
     return optional;
   }
 
-  public static either(...patterns: Pattern[]): PatternFunction {
-    const either = (input: Input): Result => {
-      let outcome = Result.fault(input);
-      for (let pattern of Tibu.rule(...patterns)) {
-        let current = input.consume(pattern);
-        if (current.success) {
-          outcome = current;
-          break;
-        }
-      }
-      return outcome;
-    };
-    either.toString = () => {
-      return "either(" + patterns.map((p) => p.toString()).join(",") + ")";
-    };
-    either.pattern = patterns;
-    return either;
-  }
-
   public static many(...patterns: any[]): PatternFunction {
     const many = (input: Input): Result => {
       let location: number;
@@ -267,17 +297,6 @@ class Tibu {
     many.pattern = patterns;
     return many;
   }
-
-  public static token<N extends string>(
-    name: N,
-    pattern: RegExp | string
-  ): IToken<N> {
-    let func = Tibu.rule(pattern);
-    return brand(func[0] as (input: Input) => Result, {
-      $type: "token" as const,
-      $label : name,
-    });
-  }
 }
 
 interface IRuleAction {
@@ -304,7 +323,7 @@ type Rule<P extends [...P]> = {
     fragment: string,
     location: { start: number; end: number }
   ) => any;
-} & P
+} & P;
 
 type Pattern =
   | string

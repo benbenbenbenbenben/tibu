@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { Tibu, IToken, TokenResult } from "./tibu";
+import { Tibu, IToken, TokenResult,either,  token } from "./tibu";
 
-const { parse, either, all, rule, token } = Tibu;
+const { parse, all, rule } = Tibu;
 
 describe("Tibu", () => {
   it("dd", () => {
