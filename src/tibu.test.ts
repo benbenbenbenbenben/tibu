@@ -1,16 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { Tibu, IToken, TokenResult,either,  token } from "./tibu";
-
-const { parse, all, rule } = Tibu;
+import { IToken, TokenResult,either,  token, all, many, rule, parse } from "./tibu";
 
 describe("Tibu", () => {
   it("dd", () => {
     expect(1).toBe(1);
 
-    const title = either("Mr", "Mrs", "Miss", "Dr");
+    const title = either("Mr", "Mrs", "Miss", "Dr", /kk/);
     const whitespace = token("whitespace", /\s*/);
     const name = token("name", /.+/);
-
+    
     const titledPerson = rule(title, whitespace, name);
 
     const mrSmith = parse("Mr Smith")(titledPerson);

@@ -1,6 +1,67 @@
-import { Input } from "./tibu.Input";
 import { Result } from "./tibu.Result";
 import { ResultTokens } from "./tibu.ResultTokens";
+
+const isResult = (resultLike: Result | RuleLike): resultLike is Result => {
+  return typeof (resultLike as RuleLike).$type === "undefined";
+};
+const isRule = (resultLike: Result | RuleLike): resultLike is RuleLike => {
+  return isResult(resultLike) === false;
+};
+export class Input {
+  source: string;
+  location: number;
+  state: any;
+  tokens: ResultTokens = new ResultTokens();
+  tokenyielders: any[] = [];
+  constructor(source: string) {
+    this.source = source;
+    this.location = 0;
+    this.state = 0;
+  }
+  indexOfString(pattern: string): number {
+    return this.source.substring(this.location).indexOf(pattern);
+  }
+  indexOfRegExp(
+    pattern: RegExp
+  ): { value: string; index: number; length: number } | undefined {
+    const r = pattern.exec(this.source.substring(this.location));
+    if (r) {
+      return { value: r[0], index: r.index, length: r[0].length };
+    }
+  }
+  begin(tokens: ResultTokens): number {
+    this.tokens = tokens;
+    this.tokenyielders = [];
+    return this.location;
+  }
+  end(): void {
+    // do nothing
+  }
+  rewind(loc: number): void {
+    this.location = loc;
+    this.tokens.dropAfter(loc);
+  }
+  consume(predicate: RuleLike): Result {
+    const start: number = this.location;
+    const result = predicate(this);
+    if (isRule(result)) {
+      return this.consume(result);
+    }
+    if (result.success === false) {
+      this.location = start;
+      return Result.fault(this);
+    } else {
+      this.location = result.end;
+      if (predicate.$type === "token") {
+        this.collect(predicate.$label, result);
+      }
+      return result;
+    }
+  }
+  collect(name: string, result: Result): void {
+    this.tokens.push(name, result);
+  }
+}
 
 type Branded<T, B> = T & B;
 
@@ -16,14 +77,9 @@ export type TokenResult<N extends string> = {
   index: number;
 };
 
-type PatternFunction = {
-  (input: Input): Result;
-  pattern: Pattern[];
-};
-
 type Token<Label extends string> = {
   (input: Input): Result;
-  $type: "rule";
+  $type: "token";
   $label: Label;
   toString: () => string;
 } & (
@@ -37,15 +93,51 @@ type Token<Label extends string> = {
     }
 );
 
-type EitherRule<H, T extends any[]> = [H, ...T];
+type RuleLike = {
+  (input: Input): Result | RuleLike;
+  $type: string;
+  $label: string;
+};
 
-export const either = <A extends string, T extends Readonly<[...A[]]>>(
+type RuleType<T extends string, S extends RuleOrRuleInput[]> = {
+  (input: Input): Result;
+  // [Symbol.iterator](): Iterator<S>;
+  $label: string;
+  $type: T;
+  $pattern: S;
+};
+
+type Either<T extends RuleOrRuleInput[]> = RuleType<"either", T>;
+type Optional<T extends RuleOrRuleInput[]> = RuleType<"optional", T>;
+type Many<T extends RuleOrRuleInput[]> = RuleType<"many", T>;
+type All<T extends RuleOrRuleInput[]> = RuleType<"all", T>;
+
+type RuleInput = string | RegExp;
+
+type RuleOrRuleInput = RuleLike | RuleInput;
+
+type RuleSet<T extends RuleOrRuleInput[]> = T extends [
+  infer Head,
+  ...infer Tail
+]
+  ? Tail extends RuleOrRuleInput[]
+    ? Head extends RuleInput
+      ? Head extends string
+        ? [Token<Head>, ...RuleSet<Tail>]
+        : [Token<"RegExp">, ...RuleSet<Tail>]
+      : [Head, ...RuleSet<Tail>]
+    : Tail extends RuleOrRuleInput
+    ? []
+    : never
+  : [];
+
+export const either = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
   ...patterns: T
-): Readonly<T> => {
+): Either<[...T]> => {
   const either = (input: Input): Result => {
     let outcome = Result.fault(input);
-    for (let pattern of Tibu.rule(...patterns)) {
-      let current = input.consume(pattern);
+    for (let pattern of patterns) {
+      let current = input.consume(compilePattern(pattern));
       if (current.success) {
         outcome = current;
         break;
@@ -53,11 +145,105 @@ export const either = <A extends string, T extends Readonly<[...A[]]>>(
     }
     return outcome;
   };
-  either.toString = () => {
-    return "either(" + patterns.map((p) => p.toString()).join(",") + ")";
+  return brand(either, {
+    toString: () =>
+      "either(" + patterns.map((p) => p.toString()).join(",") + ")",
+    $type: "either" as const,
+    $label: "either",
+    $pattern: patterns as [...T],
+    [Symbol.iterator]: function* () {
+      for (const iterator of patterns) {
+        yield iterator as any;
+      }
+    },
+  });
+};
+
+export const optional = <
+  A extends RuleOrRuleInput,
+  T extends Readonly<[...A[]]>
+>(
+  ...patterns: T
+): Optional<[...T]> => {
+  const optional = (input: Input): Result => {
+    let outcome = all(...patterns)(input);
+    if (outcome.success) {
+      return outcome;
+    } else {
+      return Result.pass(input);
+    }
   };
-  either.pattern = patterns;
-  return either as EitherRule<P>;
+  return brand(optional, {
+    $type: "optional" as const,
+    $label: "optional",
+    $pattern: patterns as [...T],
+  });
+};
+
+export const all = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
+  ...patterns: T
+): All<[...T]> => {
+  const all = (input: Input): Result => {
+    let location: number = input.location;
+    let consumed: Result[] = [];
+    let fault: boolean = false;
+    for (let pattern of patterns) {
+      const nxt = input.consume(compilePattern(pattern));
+      if (nxt.success) {
+        consumed.push(nxt);
+      } else {
+        input.rewind(location);
+        // input.unconsume(...consumed);
+        fault = true;
+        break;
+      }
+    }
+    if (fault) {
+      return Result.fault(input);
+    } else {
+      return Result.composite(...consumed);
+    }
+  };
+  return brand(all, {
+    $type: "all" as const,
+    $label: "all",
+    $pattern: patterns as [...T],
+  });
+};
+export const rule = all;
+
+export const many = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
+  ...patterns: T
+): Many<[...T]> => {
+  const many = (input: Input): Result => {
+    let location: number;
+    let consumed: Result[] = [];
+    let current: Result;
+    let exhausted: boolean = false;
+    while (true) {
+      location = input.location;
+      current = all(...patterns)(input);
+      if (current.success) {
+        consumed.push(current);
+      } else {
+        exhausted = true;
+      }
+      // stalled
+      if (input.location === location || exhausted) {
+        break;
+      }
+    }
+    if (consumed.length === 0) {
+      consumed = [Result.pass(input)];
+    }
+    return Result.composite(...consumed);
+  };
+  return brand(many, {
+    $type: "many" as const,
+    $label: "many",
+    $pattern: patterns as [...T],
+    toString: () => `many(${patterns.map((p) => p.toString()).join(",")})`,
+  });
 };
 
 export const token = <Label extends string>(
@@ -80,7 +266,7 @@ export const token = <Label extends string>(
       };
     };
     return brand(rule, {
-      $type: "rule" as const,
+      $type: "token" as const,
       $subtype: "string" as const,
       $label: label,
       $pattern: pattern,
@@ -102,7 +288,7 @@ export const token = <Label extends string>(
       };
     };
     return brand(rule, {
-      $type: "rule" as const,
+      $type: "token" as const,
       $subtype: "regex" as const,
       $label: label,
       $pattern: pattern,
@@ -111,194 +297,74 @@ export const token = <Label extends string>(
   }
 };
 
-class Tibu {
-  public static tests: (() => {
-    actual: any;
-    expected: any;
-    source: string;
-  })[] = [];
-  /**
-   * Removes
-   */
-  public static flat(arr: any[]): any[] {
-    return arr.reduce(
-      (a, b) => a.concat(Array.isArray(b) ? Tibu.flat(b) : b),
-      []
-    );
-  }
-  public static parse(
-    source: string
-  ): <R extends [Rule]>(...rules: R) => Result[][] {
-    const input = new Input(source);
-    return (...rules: Rule[]): any => {
-      const results: Result[][] = [];
-      for (let rule of rules) {
-        const result = Tibu.next(input, rule);
-        if (result.length === 0) {
-          break;
-        }
-        results.push(result as any);
-      }
-      return results;
-    };
-  }
-  public static next(input: Input, rule: any): Result[] {
-    let tokens: ResultTokens = new ResultTokens();
-    let ref: number = input.begin(tokens);
-    let x: any;
-    let matches: Result[] = [];
-    for (let predicate of rule) {
-      x = input.consume(predicate);
-      matches.push(x);
-      if (x.success === false) {
+export const parse = (
+  source: string
+): (<R extends RuleType<any, any>>(...rules: R[]) => Result[][]) => {
+  const input = new Input(source);
+  return (...rules) => {
+    const results: Result[][] = [];
+    for (let rule of rules) {
+      const result = next(input, rule);
+      if (result.length === 0) {
         break;
       }
+      results.push(result as any);
     }
+    return results;
+  };
+};
+
+export const compilePattern = <P extends RuleOrRuleInput>(
+  pattern: P
+): RuleLike => {
+  if (isString(pattern)) {
+    return token(pattern, pattern);
+  }
+  if (isRegExp(pattern)) {
+    return token("RegExp", pattern);
+  }
+  return pattern as RuleLike;
+};
+
+export const compileRulePattern = <R extends RuleType<any, RuleOrRuleInput[]>>(
+  rule: R
+): RuleLike[] => {
+  const compiled = rule.$pattern.map(compilePattern);
+  return compiled;
+};
+
+export const next = <R extends RuleType<any, any>>(
+  input: Input,
+  rule: R
+): Result[] => {
+  const compiledPattern = compileRulePattern(rule);
+  let tokens: ResultTokens = new ResultTokens();
+  let ref: number = input.begin(tokens);
+  let x: any;
+  let matches: Result[] = [];
+  for (let patternStep of compiledPattern) {
+    x = input.consume(patternStep);
+    matches.push(x);
     if (x.success === false) {
-      input.rewind(ref);
-      return [];
+      break;
     }
-    input.end();
-    const fragment = input.source.slice(ref, input.location);
-    if (rule.yielder) {
-      return rule.yielder(
-        tokens,
-        matches.map((match) => match.yielded),
-        fragment,
-        { start: ref, end: input.location }
-      );
-    }
-    return matches;
   }
-
-  public static rule<P extends [...P]>(...patterns: P): Rule<P> {
-    const step1 = patterns.map((pattern) => {
-      if (isString(pattern)) {
-        return token(pattern, pattern);
-      }
-      if (isRegExp(pattern)) {
-        return token(pattern.toString(), pattern);
-      }
-      if (isFunction(pattern)) {
-        return pattern;
-        // subrule case, trampoline time!
-      }
-      if (isArray(pattern)) {
-        // pattern is an IRule or an inline array...
-        const predicate = (input: Input): Result => {
-          if (pattern.yielder) {
-            const start = input.location;
-            const frozentokens: ResultTokens = input.tokens;
-            input.tokens = new ResultTokens();
-            const result: Result = Tibu.all(...pattern)(input);
-            if (result.success) {
-              const end = input.location;
-              const fragment = input.source.substring(start, end);
-              let subruleyield = pattern.yielder(
-                input.tokens,
-                result.yielded,
-                fragment,
-                { start, end }
-              );
-              result.yielded = subruleyield;
-            }
-            input.tokens = frozentokens;
-            return result;
-          } else {
-            // ...all-ify this array
-            return Tibu.all(...pattern)(input);
-          }
-        };
-        predicate.toString = () => {
-          return "pred:" + pattern.map((p: any) => p.toString()).join("/");
-        };
-        return predicate;
-      }
-      throw new Error("oops");
-    });
-    return brand(step1, {
-      $type: "rule" as const,
-      __rule__: true,
-      yields: (handler: IRuleAction): any => {
-        brand(step1, {
-          yielder: handler,
-        });
-        return step1;
-      },
-    });
+  if (x.success === false) {
+    input.rewind(ref);
+    return [];
   }
-
-  public static all(...patterns: Pattern[]): PatternFunction {
-    const all = (input: Input): Result => {
-      let location: number = input.location;
-      let consumed: Result[] = [];
-      let fault: boolean = false;
-      for (let precompiledRule of Tibu.rule(...patterns)) {
-        const nxt: Result = input.consume(precompiledRule);
-        if (nxt.success) {
-          consumed.push(nxt);
-        } else {
-          input.rewind(location);
-          // input.unconsume(...consumed);
-          fault = true;
-          break;
-        }
-      }
-      if (fault) {
-        return Result.fault(input);
-      } else {
-        return Result.composite(...consumed);
-      }
-    };
-    all.pattern = patterns;
-    return all;
+  input.end();
+  const fragment = input.source.slice(ref, input.location);
+  if (rule.yielder) {
+    return rule.yielder(
+      tokens,
+      matches.map((match) => match.yielded),
+      fragment,
+      { start: ref, end: input.location }
+    );
   }
-
-  public static optional(...patterns: Pattern[]): PatternFunction {
-    const optional = (input: Input): Result => {
-      let outcome: Result = Tibu.all(...patterns)(input);
-      if (outcome.success) {
-        return outcome;
-      } else {
-        return Result.pass(input);
-      }
-    };
-    optional.pattern = patterns;
-    return optional;
-  }
-
-  public static many(...patterns: any[]): PatternFunction {
-    const many = (input: Input): Result => {
-      let location: number;
-      let consumed: Result[] = [];
-      let current: Result;
-      let exhausted: boolean = false;
-      while (true) {
-        location = input.location;
-        current = Tibu.all(...patterns)(input);
-        if (current.success) {
-          consumed.push(current);
-        } else {
-          exhausted = true;
-        }
-        // stalled
-        if (input.location === location || exhausted) {
-          break;
-        }
-      }
-      if (consumed.length === 0) {
-        consumed = [Result.pass(input)];
-      }
-      return Result.composite(...consumed);
-    };
-    many.toString = () => {
-      return "many(" + patterns.map((p) => p.toString()).join(",") + ")";
-    };
-    many.pattern = patterns;
-    return many;
-  }
-}
-
+  return matches;
+};
 interface IRuleAction {
   (
     this: any,
@@ -314,51 +380,16 @@ interface IToken<N> {
   (input: Input): Result;
 }
 
-type Rule<P extends [...P]> = {
-  $type: "rule";
-  yields(yielder: IRuleAction): Rule<P>;
-  yielder?: (
-    tokens: ResultTokens,
-    yielded: any,
-    fragment: string,
-    location: { start: number; end: number }
-  ) => any;
-} & P;
-
-type Pattern =
-  | string
-  | RegExp
-  | IToken<any>
-  | Rule
-  | ((input: Input) => Result)
-  | (() => Rule);
-
 const isString = (pattern: any): pattern is string => {
   return typeof pattern === "string";
 };
 const isRegExp = (pattern: any): pattern is RegExp => {
   return pattern instanceof RegExp;
 };
-const isIToken = (pattern: any): pattern is IToken<any> => {
-  return !isString(pattern) && "__token__" in pattern;
-};
-const isIRule = (pattern: any): pattern is Rule => {
-  return !isString(pattern) && "yields" in pattern;
-};
-const isFunction = (pattern: any): pattern is Function => {
-  return pattern instanceof Function;
-};
-const isArray = (pattern: any): pattern is Array<any> => {
-  return pattern instanceof Array;
-};
 
 export {
-  Tibu,
   Result,
   ResultTokens,
-  Input,
   IToken,
-  Rule as IRule,
   IRuleAction,
-  Pattern,
 };
