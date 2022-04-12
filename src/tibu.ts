@@ -285,27 +285,33 @@ export const token = <Label extends string>(
 
 type Union<T extends Readonly<[...T]>> = Result;
 
+type AllLike = { $type: "all"; $pattern: any[] };
+type EitherLike = { $type: "either"; $pattern: any[] };
+type TokenLike = { $type: "token"; $label: string };
+
 type Results<T extends RuleOrRuleInput[]> = T extends [
   infer Head,
   ...infer Tail
 ]
   ? Tail extends RuleOrRuleInput[]
-    ? Head extends RuleInput
+    ? Head extends AllLike
+      ? [...Results<Head["$pattern"]>, ...Results<Tail>]
+      : Head extends EitherLike
+      ? //? [Head["$pattern"], ...Results<Tail>]
+        ["EITHER", ...Results<Tail>]
+      : Head extends TokenLike
+      ? [Head["$label"], ...Results<Tail>]
+      : Head extends any[]
+      ? ["ARRAY", ...Results<Tail>]
+      : Head extends RuleInput
       ? Head extends string
         ? [Head, ...Results<Tail>]
-        : [Head, ...Results<Tail>]
-      : [
-          Head extends []
-            ? never
-            : Head extends { $type: "either"; $pattern: any }
-            ? Union<Head["$pattern"]>
-            : Head,
-          ...Results<Tail>
-        ]
-    : Tail extends RuleOrRuleInput
-    ? []
-    : never
-  : [];
+        : Head extends RegExp
+        ? ["REGEX", ...Results<Tail>]
+        : [1]
+      : [2]
+    : [3]
+  : T;
 
 export const parse = (
   source: string
