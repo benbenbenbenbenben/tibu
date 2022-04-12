@@ -12,6 +12,7 @@ describe("Tibu", () => {
     const titledPerson = rule(title, whitespace, name);
 
     const mrSmith = parse("Mr Smith")(titledPerson);
+    const [TITLE, _, NAME] = mrSmith
 
     expect<
       [

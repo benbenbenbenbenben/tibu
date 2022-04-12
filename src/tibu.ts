@@ -1,3 +1,4 @@
+import { HookListener } from "vitest";
 import { Result } from "./tibu.Result";
 import { ResultTokens } from "./tibu.ResultTokens";
 
@@ -115,21 +116,6 @@ type All<T extends RuleOrRuleInput[]> = RuleType<"all", T>;
 type RuleInput = string | RegExp;
 
 type RuleOrRuleInput = RuleLike | RuleInput;
-
-type RuleSet<T extends RuleOrRuleInput[]> = T extends [
-  infer Head,
-  ...infer Tail
-]
-  ? Tail extends RuleOrRuleInput[]
-    ? Head extends RuleInput
-      ? Head extends string
-        ? [Token<Head>, ...RuleSet<Tail>]
-        : [Token<"RegExp">, ...RuleSet<Tail>]
-      : [Head, ...RuleSet<Tail>]
-    : Tail extends RuleOrRuleInput
-    ? []
-    : never
-  : [];
 
 export const either = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
   ...patterns: T
@@ -297,9 +283,36 @@ export const token = <Label extends string>(
   }
 };
 
+type Union<T extends Readonly<[...T]>> = Result;
+
+type Results<T extends RuleOrRuleInput[]> = T extends [
+  infer Head,
+  ...infer Tail
+]
+  ? Tail extends RuleOrRuleInput[]
+    ? Head extends RuleInput
+      ? Head extends string
+        ? [Head, ...Results<Tail>]
+        : [Head, ...Results<Tail>]
+      : [
+          Head extends []
+            ? never
+            : Head extends { $type: "either"; $pattern: any }
+            ? Union<Head["$pattern"]>
+            : Head,
+          ...Results<Tail>
+        ]
+    : Tail extends RuleOrRuleInput
+    ? []
+    : never
+  : [];
+
 export const parse = (
   source: string
-): (<R extends RuleType<any, any>>(...rules: R[]) => Result[][]) => {
+  //): (<R extends RuleType<any, any>>(...rules: R[]) => Result[][]) => {
+): (<A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
+  ...patterns: T
+) => Results<[...T]>) => {
   const input = new Input(source);
   return (...rules) => {
     const results: Result[][] = [];
@@ -387,9 +400,4 @@ const isRegExp = (pattern: any): pattern is RegExp => {
   return pattern instanceof RegExp;
 };
 
-export {
-  Result,
-  ResultTokens,
-  IToken,
-  IRuleAction,
-};
+export { Result, ResultTokens, IToken, IRuleAction };
