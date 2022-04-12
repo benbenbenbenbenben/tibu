@@ -14,7 +14,7 @@ describe("Tibu", () => {
     const mrSmith = parse("Mr Smith")(titledPerson);
     const [TITLE,, NAME] = mrSmith
 
-    const mrAndMrs = parse("Mr Smith and Mrs Smith")(titledPerson, rule(whitespace, "and", whitespace, titledPerson))
+    const mrAndMrs = parse("Mr Smith and Mrs Smith")(titledPerson, whitespace, "and", whitespace, titledPerson)
     const [MR,, SMITH0,,,, MRS,, SMITH1] = mrAndMrs
 
     expect<

@@ -300,12 +300,12 @@ type Results<T extends RuleOrRuleInput[]> = T extends [
       ? //? [Head["$pattern"], ...Results<Tail>]
         ["EITHER", ...Results<Tail>]
       : Head extends TokenLike
-      ? [Head["$label"], ...Results<Tail>]
+      ? [TokenResult<Head["$label"]>, ...Results<Tail>]
       : Head extends any[]
       ? ["ARRAY", ...Results<Tail>]
       : Head extends RuleInput
       ? Head extends string
-        ? [Head, ...Results<Tail>]
+        ? [TokenResult<Head>, ...Results<Tail>]
         : Head extends RegExp
         ? ["REGEX", ...Results<Tail>]
         : [1]
