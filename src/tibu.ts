@@ -283,7 +283,7 @@ export const token = <Label extends string>(
   }
 };
 
-type Union<T extends Readonly<[...T]>> = Result;
+type Union<T extends Readonly<[...T]>> = T extends [infer Head, ...infer Tail] ? Head | Union<Tail> : never;
 
 type AllLike = { $type: "all"; $pattern: any[] };
 type EitherLike = { $type: "either"; $pattern: any[] };
@@ -298,7 +298,7 @@ type Results<T extends RuleOrRuleInput[]> = T extends [
       ? [...Results<Head["$pattern"]>, ...Results<Tail>]
       : Head extends EitherLike
       ? //? [Head["$pattern"], ...Results<Tail>]
-        ["EITHER", ...Results<Tail>]
+        [Union<Head["$pattern"]>, ...Results<Tail>]
       : Head extends TokenLike
       ? [TokenResult<Head["$label"]>, ...Results<Tail>]
       : Head extends any[]
