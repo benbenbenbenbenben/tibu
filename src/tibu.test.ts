@@ -5,17 +5,17 @@ describe("Tibu", () => {
   it("dd", () => {
     expect(1).toBe(1);
 
-    const title = either("Mr", "Mrs", "Miss", "Dr", /kk/);
+    const title = either("Mr", "Mrs", "Miss", "Dr");
     const whitespace = token("whitespace", /\s*/);
     const name = token("name", /.+/);
     
     const titledPerson = rule(title, whitespace, name);
 
     const mrSmith = parse("Mr Smith")(titledPerson);
-    const [TITLE,, NAME] = mrSmith
+    const [TITLE, ws, NAME] = mrSmith
 
     const mrAndMrs = parse("Mr Smith and Mrs Smith")(titledPerson, whitespace, "and", whitespace, titledPerson)
-    const [MR,, SMITH0,,,, MRS,, SMITH1] = mrAndMrs
+    const [[MR, ws0, SMITH], ws1, and, ws2, [MRS, ws3, SMITH2]] = mrAndMrs
 
     expect<
       [

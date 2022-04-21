@@ -98,6 +98,7 @@ type RuleLike = {
   (input: Input): Result | RuleLike;
   $type: string;
   $label: string;
+  $pattern: any;
 };
 
 type RuleType<T extends string, S extends RuleOrRuleInput[]> = {
@@ -169,7 +170,7 @@ export const optional = <
 export const all = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
   ...patterns: T
 ): All<[...T]> => {
-  const all = (input: Input): Result => {
+  const all = (input: Input): Results<[All<[...T]>]> => {
     let location: number = input.location;
     let consumed: Result[] = [];
     let fault: boolean = false;
@@ -283,33 +284,37 @@ export const token = <Label extends string>(
   }
 };
 
-type Union<T extends Readonly<[...T]>> = T extends [infer Head, ...infer Tail] ? Head | Union<Tail> : never;
+type Union<T extends Readonly<[...T]>> = T extends [infer Head, ...infer Tail]
+  ? Head | Union<Tail>
+  : never;
 
 type AllLike = { $type: "all"; $pattern: any[] };
 type EitherLike = { $type: "either"; $pattern: any[] };
 type TokenLike = { $type: "token"; $label: string };
+
+type ResultFor<Head, Tail extends RuleOrRuleInput[]> = Head extends AllLike
+  ? [...Results<Head["$pattern"]>, ...Results<Tail>]
+  : Head extends EitherLike
+  ? //? [Head["$pattern"], ...Results<Tail>]
+    [Union<Head["$pattern"]>, ...Results<Tail>]
+  : Head extends TokenLike
+  ? [TokenResult<Head["$label"]>, ...Results<Tail>]
+  : Head extends any[]
+  ? ["ARRAY", ...Results<Tail>]
+  : Head extends RuleInput
+  ? Head extends string
+    ? [TokenResult<Head>, ...Results<Tail>]
+    : Head extends RegExp
+    ? ["REGEX", ...Results<Tail>]
+    : [1]
+  : [2];
 
 type Results<T extends RuleOrRuleInput[]> = T extends [
   infer Head,
   ...infer Tail
 ]
   ? Tail extends RuleOrRuleInput[]
-    ? Head extends AllLike
-      ? [...Results<Head["$pattern"]>, ...Results<Tail>]
-      : Head extends EitherLike
-      ? //? [Head["$pattern"], ...Results<Tail>]
-        [Union<Head["$pattern"]>, ...Results<Tail>]
-      : Head extends TokenLike
-      ? [TokenResult<Head["$label"]>, ...Results<Tail>]
-      : Head extends any[]
-      ? ["ARRAY", ...Results<Tail>]
-      : Head extends RuleInput
-      ? Head extends string
-        ? [TokenResult<Head>, ...Results<Tail>]
-        : Head extends RegExp
-        ? ["REGEX", ...Results<Tail>]
-        : [1]
-      : [2]
+    ? ResultFor<Head, Tail>
     : [3]
   : T;
 
@@ -320,16 +325,33 @@ export const parse = (
   ...patterns: T
 ) => Results<[...T]>) => {
   const input = new Input(source);
-  return (...rules) => {
-    const results: Result[][] = [];
-    for (let rule of rules) {
-      const result = next(input, rule);
-      if (result.length === 0) {
-        break;
+  return <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
+    ...rules: T
+  ): Results<[...T]> => {
+    const results = rules.reduce((r, rule, i) => {
+      if (isString(rule)) {
+        const res = next(input, all(rule));
+        Object.assign(r, { [i]: res });
+      } else if (isRegExp(rule)) {
+        const res = next(input, all(rule));
+        Object.assign(r, { [i]: res });
+      } else {
+        const res = next(input, all(rule));
+        Object.assign(r, { [i]: res });
       }
-      results.push(result as any);
-    }
+      return r;
+    }, {} as Results<[...T]>);
     return results;
+
+    // const results: Results<[...T]>;
+    // for (let rule of rules) {
+    //   const result = next(input, rule);
+    //   if (result.length === 0) {
+    //     break;
+    //   }
+    //   results.push(result);
+    // }
+    // return results as any as Results<[...T]>;
   };
 };
 
@@ -355,7 +377,7 @@ export const compileRulePattern = <R extends RuleType<any, RuleOrRuleInput[]>>(
 export const next = <R extends RuleType<any, any>>(
   input: Input,
   rule: R
-): Result[] => {
+): Results<[R]> | void => {
   const compiledPattern = compileRulePattern(rule);
   let tokens: ResultTokens = new ResultTokens();
   let ref: number = input.begin(tokens);
@@ -370,7 +392,7 @@ export const next = <R extends RuleType<any, any>>(
   }
   if (x.success === false) {
     input.rewind(ref);
-    return [];
+    return;
   }
   input.end();
   const fragment = input.source.slice(ref, input.location);
@@ -382,7 +404,9 @@ export const next = <R extends RuleType<any, any>>(
       { start: ref, end: input.location }
     );
   }
-  return matches;
+  return {
+    ...matches
+  } as Results<[R]>
 };
 interface IRuleAction {
   (
