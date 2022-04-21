@@ -1,433 +1,380 @@
-import { HookListener } from "vitest";
-import { Result } from "./tibu.Result";
-import { ResultTokens } from "./tibu.ResultTokens";
+import { beforeAll } from "vitest";
 
-const isResult = (resultLike: Result | RuleLike): resultLike is Result => {
-  return typeof (resultLike as RuleLike).$type === "undefined";
+type Pattern<X extends RuleLikeSet<any, any>> = X extends [infer H, ...infer T]
+  ? H extends RuleLike
+    ? [PatternElement<H>, ...Pattern<T>]
+    : never
+  : [];
+
+type PatternElement<P extends RuleLike> = P extends string ? TokenRule<P> : P;
+
+//  <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>
+type RuleLikeSet<H extends RuleLike, T extends Readonly<[...H[]]>> = [...T];
+
+type RuleLike = string | { $type: string };
+
+type TokenRule<L extends string = string> = {
+  run(input: Input): ResultFor<TokenRule<L>> | void;
+  $type: "token";
+  $label: L;
+  $token: string | RegExp;
 };
-const isRule = (resultLike: Result | RuleLike): resultLike is RuleLike => {
-  return isResult(resultLike) === false;
+
+export const token = <N extends string>(
+  name: N,
+  token?: string | RegExp
+): TokenRule<N> => ({
+  run: (input: Input) => {
+    const needle = token || name;
+    const ok = input.consume(needle);
+    if (ok.ok) {
+      return {
+        $index: ok.index,
+        $length: ok.length,
+        $label: name,
+        $value: ok.raw,
+      } as ResultFor<TokenRule<N>>;
+    }
+  },
+  $type: "token" as const,
+  $label: name,
+  $token: token || name,
+});
+
+type MappedRule<
+  N extends string,
+  X extends RuleLikeSet<any, any>,
+  MappedType
+> = Rule<N, X> & {
+  run: (input: Input) => MappedType;
+  $mapped: true;
+  // map<NewMappedType>(
+  //   mapper: (result: MappedType) => NewMappedType
+  // ): MappedRule<N, X, NewMappedType>;
 };
-export class Input {
-  source: string;
-  location: number;
-  state: any;
-  tokens: ResultTokens = new ResultTokens();
-  tokenyielders: any[] = [];
-  constructor(source: string) {
-    this.source = source;
-    this.location = 0;
-    this.state = 0;
-  }
-  indexOfString(pattern: string): number {
-    return this.source.substring(this.location).indexOf(pattern);
-  }
-  indexOfRegExp(
-    pattern: RegExp
-  ): { value: string; index: number; length: number } | undefined {
-    const r = pattern.exec(this.source.substring(this.location));
-    if (r) {
-      return { value: r[0], index: r.index, length: r[0].length };
-    }
-  }
-  begin(tokens: ResultTokens): number {
-    this.tokens = tokens;
-    this.tokenyielders = [];
-    return this.location;
-  }
-  end(): void {
-    // do nothing
-  }
-  rewind(loc: number): void {
-    this.location = loc;
-    this.tokens.dropAfter(loc);
-  }
-  consume(predicate: RuleLike): Result {
-    const start: number = this.location;
-    const result = predicate(this);
-    if (isRule(result)) {
-      return this.consume(result);
-    }
-    if (result.success === false) {
-      this.location = start;
-      return Result.fault(this);
+
+type Rule<N extends string, X extends RuleLikeSet<any, any>> = {
+  run(input: Input): ResultFor<Rule<N, X>> | void;
+  $type: N;
+  $pattern: Pattern<X>;
+  map<MappedType>(
+    mapper: (result: ResultFor<Rule<N, X>>) => MappedType
+  ): MappedRule<N, X, MappedType>;
+};
+
+type EitherRule<X extends RuleLikeSet<any, any>> = Rule<"either", X>;
+type AllRule<X extends RuleLikeSet<any, any>> = Rule<"all", X>;
+type OptionalRule<X extends RuleLikeSet<any, any>> = Rule<"optional", X>;
+type ManyRule<X extends RuleLikeSet<any, any>> = Rule<"many", X>;
+
+const ruleToPattern = <H extends RuleLike, T extends Readonly<[...H[]]>>(
+  ...rules: T
+): Pattern<[...T]> => {
+  return rules.reduce((patterns, rule, i) => {
+    if (typeof rule === "string") {
+      Object.assign(patterns, { [i]: token(rule) });
     } else {
-      this.location = result.end;
-      if (predicate.$type === "token") {
-        this.collect(predicate.$label, result);
-      }
-      return result;
+      Object.assign(patterns, { [i]: rule });
     }
+    return patterns;
+  }, [] as Pattern<[...T]>);
+};
+
+type RawResult = { ok: boolean; index: number; length: number; raw?: string };
+interface Input {
+  position: number;
+  restore(position: number): void;
+  consume(pattern: string | RegExp): RawResult;
+}
+
+class StringInput implements Input {
+  position: number;
+  source: string;
+  constructor(source: string) {
+    this.position = 0;
+    this.source = source;
   }
-  collect(name: string, result: Result): void {
-    this.tokens.push(name, result);
+  restore(position: number): void {
+    this.position = position;
+  }
+  consume(pattern: string | RegExp): RawResult {
+    if (typeof pattern === "string") {
+      if (this.source.substring(this.position).indexOf(pattern) === 0) {
+        this.position += pattern.length;
+        return {
+          ok: true,
+          index: this.position - pattern.length,
+          length: pattern.length,
+          raw: pattern,
+        };
+      }
+    }
+    const match = this.source.substring(this.position).match(pattern);
+    if (match) {
+      if (match.index === 0) {
+        this.position += match[0].length;
+        return {
+          ok: true,
+          index: this.position - match[0].length,
+          length: match[0].length,
+          raw: match[0],
+        };
+      }
+    }
+    return { ok: false, index: this.position, length: 0 };
   }
 }
 
-type Branded<T, B> = T & B;
-
-const brand = <T, B>(t: T, b: B): Branded<T, B> => {
-  return Object.assign(t, b);
+type Runnable = {
+  run: (input: Input) => {
+    $type: string;
+    $index: number;
+    $length: number;
+    $value: unknown;
+  } | void;
 };
 
-export type TokenResult<N extends string> = {
-  $type: "token";
-  $ok: true;
-  $label: N;
-  value: string;
-  index: number;
+export const stringInput = (src: string): Input => {
+  return new StringInput(src);
 };
 
-type Token<Label extends string> = {
-  (input: Input): Result;
-  $type: "token";
-  $label: Label;
-  toString: () => string;
-} & (
-  | {
-      $subtype: "string";
-      $pattern: string;
-    }
-  | {
-      $subtype: "regex";
-      $pattern: RegExp;
-    }
-);
-
-type RuleLike = {
-  (input: Input): Result | RuleLike;
-  $type: string;
-  $label: string;
-  $pattern: any;
-};
-
-type RuleType<T extends string, S extends RuleOrRuleInput[]> = {
-  (input: Input): Result;
-  // [Symbol.iterator](): Iterator<S>;
-  $label: string;
-  $type: T;
-  $pattern: S;
-};
-
-type Either<T extends RuleOrRuleInput[]> = RuleType<"either", T>;
-type Optional<T extends RuleOrRuleInput[]> = RuleType<"optional", T>;
-type Many<T extends RuleOrRuleInput[]> = RuleType<"many", T>;
-type All<T extends RuleOrRuleInput[]> = RuleType<"all", T>;
-
-type RuleInput = string | RegExp;
-
-type RuleOrRuleInput = RuleLike | RuleInput;
-
-export const either = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
-  ...patterns: T
-): Either<[...T]> => {
-  const either = (input: Input): Result => {
-    let outcome = Result.fault(input);
-    for (let pattern of patterns) {
-      let current = input.consume(compilePattern(pattern));
-      if (current.success) {
-        outcome = current;
-        break;
-      }
-    }
-    return outcome;
-  };
-  return brand(either, {
-    toString: () =>
-      "either(" + patterns.map((p) => p.toString()).join(",") + ")",
-    $type: "either" as const,
-    $label: "either",
-    $pattern: patterns as [...T],
-    [Symbol.iterator]: function* () {
-      for (const iterator of patterns) {
-        yield iterator as any;
+export const either = <H extends RuleLike, T extends Readonly<[...H[]]>>(
+  ...rules: T
+): EitherRule<[...T]> => {
+  const pattern = ruleToPattern(...rules);
+  return {
+    run: (input: Input) => {
+      for (let item of pattern) {
+        const result = (item as Runnable).run(input);
+        if (result) {
+          return {
+            $type: "either",
+            $index: result.$index,
+            $length: result.$length,
+            $value: result,
+          } as ResultFor<Rule<"either", [...T]>>;
+        }
       }
     },
-  });
-};
-
-export const optional = <
-  A extends RuleOrRuleInput,
-  T extends Readonly<[...A[]]>
->(
-  ...patterns: T
-): Optional<[...T]> => {
-  const optional = (input: Input): Result => {
-    let outcome = all(...patterns)(input);
-    if (outcome.success) {
-      return outcome;
-    } else {
-      return Result.pass(input);
-    }
-  };
-  return brand(optional, {
-    $type: "optional" as const,
-    $label: "optional",
-    $pattern: patterns as [...T],
-  });
-};
-
-export const all = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
-  ...patterns: T
-): All<[...T]> => {
-  const all = (input: Input): Results<[All<[...T]>]> => {
-    let location: number = input.location;
-    let consumed: Result[] = [];
-    let fault: boolean = false;
-    for (let pattern of patterns) {
-      const nxt = input.consume(compilePattern(pattern));
-      if (nxt.success) {
-        consumed.push(nxt);
-      } else {
-        input.rewind(location);
-        // input.unconsume(...consumed);
-        fault = true;
-        break;
-      }
-    }
-    if (fault) {
-      return Result.fault(input);
-    } else {
-      return Result.composite(...consumed);
-    }
-  };
-  return brand(all, {
-    $type: "all" as const,
-    $label: "all",
-    $pattern: patterns as [...T],
-  });
-};
-export const rule = all;
-
-export const many = <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
-  ...patterns: T
-): Many<[...T]> => {
-  const many = (input: Input): Result => {
-    let location: number;
-    let consumed: Result[] = [];
-    let current: Result;
-    let exhausted: boolean = false;
-    while (true) {
-      location = input.location;
-      current = all(...patterns)(input);
-      if (current.success) {
-        consumed.push(current);
-      } else {
-        exhausted = true;
-      }
-      // stalled
-      if (input.location === location || exhausted) {
-        break;
-      }
-    }
-    if (consumed.length === 0) {
-      consumed = [Result.pass(input)];
-    }
-    return Result.composite(...consumed);
-  };
-  return brand(many, {
-    $type: "many" as const,
-    $label: "many",
-    $pattern: patterns as [...T],
-    toString: () => `many(${patterns.map((p) => p.toString()).join(",")})`,
-  });
-};
-
-export const token = <Label extends string>(
-  label: Label,
-  pattern: string | RegExp
-): Token<Label> => {
-  if (typeof pattern === "string") {
-    const rule = (input: Input): Result => {
-      const ix = input.indexOfString(pattern);
-      const success: boolean = ix === 0;
-      const start: number = input.location;
-      const end: number = input.location + pattern.length;
-      return {
-        success,
-        start,
-        end,
-        value: pattern,
-        children: [],
-        yielded: undefined, // pattern
+    map: <MappedType>(
+      mapper: (result: ResultFor<Rule<"either", [...T]>>) => MappedType
+    ) => {
+      const mappedEither = either(...rules);
+      const run = (input: Input) => {
+        const result = mappedEither.run(input);
+        if (result) {
+          return mapper(result);
+        }
       };
-    };
-    return brand(rule, {
-      $type: "token" as const,
-      $subtype: "string" as const,
-      $label: label,
-      $pattern: pattern,
-      toString: () => label,
-    });
-  } else {
-    const rule = (input: Input): Result => {
-      const ix = input.indexOfRegExp(pattern);
-      const success: boolean = ix !== undefined && ix.index === 0;
-      const start: number = input.location;
-      const end: number = input.location + (ix ? ix.length : 0);
-      return {
-        success,
-        start,
-        end,
-        value: ix ? ix.value : "",
-        children: [],
-        yielded: undefined, // rxix.value
-      };
-    };
-    return brand(rule, {
-      $type: "token" as const,
-      $subtype: "regex" as const,
-      $label: label,
-      $pattern: pattern,
-      toString: () => label,
-    });
-  }
+      return { ...either, run, $mapped: true } as MappedRule<
+        "either",
+        [...T],
+        MappedType
+      >;
+    },
+    $type: "either" as const,
+    $pattern: pattern,
+  };
 };
 
-type Union<T extends Readonly<[...T]>> = T extends [infer Head, ...infer Tail]
-  ? Head | Union<Tail>
-  : never;
+export const all = <H extends RuleLike, T extends Readonly<[...H[]]>>(
+  ...rules: T
+): AllRule<[...T]> => {
+  const pattern = ruleToPattern(...rules);
+  return {
+    run: (input: Input) => {
+      const p = input.position;
+      const values: ReturnType<Runnable["run"]>[] = [];
+      for (let item of pattern) {
+        const result = (item as Runnable).run(input);
+        if (result) {
+          values.push(result);
+        } else {
+          input.restore(p);
+          return;
+        }
+      }
+      return {
+        $type: "all",
+        $index: values.at(0)?.$index || 0,
+        $length: (values.at(-1)?.$index || 0) + (values.at(-1)?.$length || 0),
+        $value: values,
+      } as ResultFor<Rule<"all", [...T]>>;
+    },
+    map: <MappedType>(
+      mapper: (result: ResultFor<Rule<"all", [...T]>>) => MappedType
+    ) => {
+      const mappedAll = all(...rules);
+      const run = (input: Input) => {
+        const result = mappedAll.run(input);
+        if (result) {
+          return mapper(result);
+        }
+      };
+      return { ...all, run, $mapped: true } as MappedRule<
+        "all",
+        [...T],
+        MappedType
+      >;
+    },
+    $type: "all",
+    $pattern: pattern,
+  };
+};
 
-type AllLike = { $type: "all"; $pattern: any[] };
-type EitherLike = { $type: "either"; $pattern: any[] };
-type TokenLike = { $type: "token"; $label: string };
+export const optional = <H extends RuleLike, T extends Readonly<[...H[]]>>(
+  ...rules: T
+): OptionalRule<[...T]> => {
+  return {
+    run: (input: Input) => {
+      const result = all(...rules).run(input);
+      if (result) {
+        const values = result.$value as ReturnType<Runnable["run"]>[];
+        return {
+          $type: "optional",
+          $index: values.at(0)?.$index || 0,
+          $length: (values.at(-1)?.$index || 0) + (values.at(-1)?.$length || 0),
+          $value: values,
+        } as ResultFor<Rule<"optional", [...T]>>;
+      }
+      return {
+        $type: "optional",
+        $index: input.position,
+        $length: 0,
+      } as ResultFor<Rule<"optional", [...T]>>;
+    },
+    map: <MappedType>(
+      mapper: (result: ResultFor<Rule<"optional", [...T]>>) => MappedType
+    ) => {
+      const mappedOptional = optional(...rules);
+      const run = (input: Input) => {
+        const result = mappedOptional.run(input);
+        if (result) {
+          return mapper(result);
+        }
+      };
+      return { ...optional, run, $mapped: true } as MappedRule<
+        "optional",
+        [...T],
+        MappedType
+      >;
+    },
+    $type: "optional",
+    $pattern: ruleToPattern(...rules),
+  };
+};
 
-type ResultFor<Head, Tail extends RuleOrRuleInput[]> = Head extends AllLike
-  ? [...Results<Head["$pattern"]>, ...Results<Tail>]
-  : Head extends EitherLike
-  ? //? [Head["$pattern"], ...Results<Tail>]
-    [Union<Head["$pattern"]>, ...Results<Tail>]
-  : Head extends TokenLike
-  ? [TokenResult<Head["$label"]>, ...Results<Tail>]
-  : Head extends any[]
-  ? ["ARRAY", ...Results<Tail>]
-  : Head extends RuleInput
-  ? Head extends string
-    ? [TokenResult<Head>, ...Results<Tail>]
-    : Head extends RegExp
-    ? ["REGEX", ...Results<Tail>]
-    : [1]
-  : [2];
+export const many = <H extends RuleLike, T extends Readonly<[...H[]]>>(
+  ...rules: T
+): ManyRule<[...T]> => {
+  return {
+    run: (input: Input) => {
+      let values: ReturnType<Runnable["run"]>[][] = [];
+      while (true) {
+        const result = all(...rules).run(input);
+        if (!result) {
+          break;
+        }
+        const value = result.$value as ReturnType<Runnable["run"]>[];
+        values.push(value);
+      }
 
-type Results<T extends RuleOrRuleInput[]> = T extends [
+      return {
+        $type: "many",
+        $index: values.at(0)?.at(0)?.$index || 0,
+        $length:
+          (values.at(-1)?.at(-1)?.$index || 0) +
+          (values.at(-1)?.at(-1)?.$length || 0),
+        $value: values,
+      } as ResultFor<Rule<"many", [...T]>>;
+    },
+    map: <MappedType>(
+      mapper: (result: ResultFor<Rule<"many", [...T]>>) => MappedType
+    ) => {
+      const mappedMany = many(...rules);
+      const run = (input: Input) => {
+        const result = mappedMany.run(input);
+        if (result) {
+          return mapper(result);
+        }
+      };
+      return { ...many, run, $mapped: true } as MappedRule<
+        "many",
+        [...T],
+        MappedType
+      >;
+    },
+    $type: "many",
+    $pattern: ruleToPattern(...rules),
+  };
+};
+
+export const parse = (source: string) => {
+  return <H extends RuleLike, T extends Readonly<[...H[]]>>(...rules: T) => {
+    const input = stringInput(source);
+    const v = all(...rules).run(input);
+    if (v) {
+      return v.$value as Result<[...T]>;
+    }
+  };
+};
+
+type Result<X extends RuleLikeSet<any, any>> = X extends [
   infer Head,
   ...infer Tail
 ]
-  ? Tail extends RuleOrRuleInput[]
-    ? ResultFor<Head, Tail>
-    : [3]
-  : T;
+  ? Head extends { $type: string }
+    ? [ResultFor<Head>, ...Result<Tail>]
+    : []
+  : [];
 
-export const parse = (
-  source: string
-  //): (<R extends RuleType<any, any>>(...rules: R[]) => Result[][]) => {
-): (<A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
-  ...patterns: T
-) => Results<[...T]>) => {
-  const input = new Input(source);
-  return <A extends RuleOrRuleInput, T extends Readonly<[...A[]]>>(
-    ...rules: T
-  ): Results<[...T]> => {
-    const results = rules.reduce((r, rule, i) => {
-      if (isString(rule)) {
-        const res = next(input, all(rule));
-        Object.assign(r, { [i]: res });
-      } else if (isRegExp(rule)) {
-        const res = next(input, all(rule));
-        Object.assign(r, { [i]: res });
-      } else {
-        const res = next(input, all(rule));
-        Object.assign(r, { [i]: res });
-      }
-      return r;
-    }, {} as Results<[...T]>);
-    return results;
+type EitherToUnion<P> = P extends [infer H, ...infer T]
+  ? (H extends { $type: string } ? ResultFor<H> : never) | EitherToUnion<T>
+  : never;
 
-    // const results: Results<[...T]>;
-    // for (let rule of rules) {
-    //   const result = next(input, rule);
-    //   if (result.length === 0) {
-    //     break;
-    //   }
-    //   results.push(result);
-    // }
-    // return results as any as Results<[...T]>;
-  };
-};
-
-export const compilePattern = <P extends RuleOrRuleInput>(
-  pattern: P
-): RuleLike => {
-  if (isString(pattern)) {
-    return token(pattern, pattern);
-  }
-  if (isRegExp(pattern)) {
-    return token("RegExp", pattern);
-  }
-  return pattern as RuleLike;
-};
-
-export const compileRulePattern = <R extends RuleType<any, RuleOrRuleInput[]>>(
-  rule: R
-): RuleLike[] => {
-  const compiled = rule.$pattern.map(compilePattern);
-  return compiled;
-};
-
-export const next = <R extends RuleType<any, any>>(
-  input: Input,
-  rule: R
-): Results<[R]> | void => {
-  const compiledPattern = compileRulePattern(rule);
-  let tokens: ResultTokens = new ResultTokens();
-  let ref: number = input.begin(tokens);
-  let x: any;
-  let matches: Result[] = [];
-  for (let patternStep of compiledPattern) {
-    x = input.consume(patternStep);
-    matches.push(x);
-    if (x.success === false) {
-      break;
-    }
-  }
-  if (x.success === false) {
-    input.rewind(ref);
-    return;
-  }
-  input.end();
-  const fragment = input.source.slice(ref, input.location);
-  if (rule.yielder) {
-    return rule.yielder(
-      tokens,
-      matches.map((match) => match.yielded),
-      fragment,
-      { start: ref, end: input.location }
-    );
-  }
-  return {
-    ...matches
-  } as Results<[R]>
-};
-interface IRuleAction {
-  (
-    this: any,
-    result: ResultTokens,
-    yielded: any,
-    raw: string,
-    location: { start: number; end: number }
-  ): any | void;
-}
-interface IToken<N> {
+type ResultFor<T extends { $type: string }> = T extends {
   $type: "token";
-  $label: N;
-  (input: Input): Result;
+  $label: string;
 }
-
-const isString = (pattern: any): pattern is string => {
-  return typeof pattern === "string";
-};
-const isRegExp = (pattern: any): pattern is RegExp => {
-  return pattern instanceof RegExp;
-};
-
-export { Result, ResultTokens, IToken, IRuleAction };
+  ? {
+      $type: T["$type"];
+      $index: number;
+      $length: number;
+      $label: T["$label"];
+      $value: string;
+    }
+  : T extends { $pattern: infer P }
+  ? P extends any[]
+    ? T extends { $mapped: true; run: (input: Input) => infer MappedType }
+      ? MappedType
+      : T["$type"] extends "either"
+      ? {
+          $type: T["$type"];
+          $index: number;
+          $length: number;
+          $value: EitherToUnion<P>;
+        }
+      : T["$type"] extends "all"
+      ? {
+          $type: T["$type"];
+          $index: number;
+          $length: number;
+          $value: Result<P>;
+        }
+      : T["$type"] extends "optional"
+      ? {
+          $type: T["$type"];
+          $index: number;
+          $length: number;
+          $value?: Result<P>;
+        }
+      : T["$type"] extends "many"
+      ? {
+          $type: T["$type"];
+          $index: number;
+          $length: number;
+          $value: Array<Result<P>>;
+        }
+      : never
+    : never
+  : never;
